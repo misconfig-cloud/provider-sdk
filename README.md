@@ -28,8 +28,9 @@ for a deliberately unfamiliar acceptance provider.
 
 ## Compatibility
 
-The module follows semantic versioning. Protocol major `1` remains compatible
-within the `v0.1.x` SDK line; an incompatible wire change requires a new
-protocol major and explicit control-plane support.
+The module follows semantic versioning. Protocol major `2` binds every issued
+credential to the immutable profile, policy, environment, operation, and
+resource ceiling. An incompatible wire change requires a new protocol major
+and explicit control-plane support.
 
 Licensed under Apache-2.0.

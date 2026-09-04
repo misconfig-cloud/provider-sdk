@@ -1,6 +1,7 @@
 package provideradapter
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 )
 
 var environmentPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
+var authorizationDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 type PrepareRequest struct {
 	RequestID    string          `json:"request_id"`
@@ -56,15 +58,91 @@ type Subject struct {
 	Environment string `json:"environment"`
 }
 
+// Authorization is the immutable provider-neutral ceiling an admitted
+// credential adapter must enforce when it issues native credentials. Rules
+// remain generic operation and resource matchers; an adapter either maps the
+// complete ceiling to its provider or refuses issuance.
+type Authorization struct {
+	ProfileDigest    string              `json:"profile_digest"`
+	PolicyRelease    string              `json:"policy_release"`
+	Provider         string              `json:"provider"`
+	AccountRef       string              `json:"account_ref"`
+	Environments     []string            `json:"environments"`
+	ResourcePrefixes []string            `json:"resource_prefixes,omitempty"`
+	Rules            []AuthorizationRule `json:"rules"`
+}
+
+type AuthorizationRule struct {
+	ID               string   `json:"id"`
+	Effect           string   `json:"effect"`
+	Providers        []string `json:"providers,omitempty"`
+	Operations       []string `json:"operations,omitempty"`
+	ResourcePrefixes []string `json:"resource_prefixes,omitempty"`
+}
+
+func (a Authorization) Validate() error {
+	for label, value := range map[string]string{
+		"profile digest": a.ProfileDigest, "policy release": a.PolicyRelease,
+		"provider": a.Provider, "account ref": a.AccountRef,
+	} {
+		if strings.TrimSpace(value) == "" {
+			return errors.New(label + " is required")
+		}
+	}
+	if !authorizationDigestPattern.MatchString(a.ProfileDigest) || len(a.Environments) == 0 || len(a.Rules) == 0 {
+		return errors.New("authorization identity, environments, and rules are required")
+	}
+	for _, value := range append(append([]string{}, a.Environments...), a.ResourcePrefixes...) {
+		if strings.TrimSpace(value) == "" {
+			return errors.New("authorization scope contains an empty matcher")
+		}
+	}
+	seen := make(map[string]struct{}, len(a.Rules))
+	for _, rule := range a.Rules {
+		if strings.TrimSpace(rule.ID) == "" {
+			return errors.New("authorization rule id is required")
+		}
+		if _, exists := seen[rule.ID]; exists {
+			return errors.New("authorization rule is duplicated")
+		}
+		seen[rule.ID] = struct{}{}
+		switch rule.Effect {
+		case "allow", "deny", "require_approval", "require_typed_capability", "stop_session":
+		default:
+			return errors.New("authorization rule effect is invalid")
+		}
+		for _, value := range append(append(append([]string{}, rule.Providers...), rule.Operations...), rule.ResourcePrefixes...) {
+			if strings.TrimSpace(value) == "" {
+				return errors.New("authorization rule contains an empty matcher")
+			}
+		}
+	}
+	return nil
+}
+
+func AuthorizationDigest(authorization Authorization) (string, error) {
+	if err := authorization.Validate(); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(authorization)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(bytes.TrimSpace(encoded))
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
 type IssueRequest struct {
-	RequestID     string          `json:"request_id"`
-	ConnectionID  string          `json:"connection_id"`
-	Provider      string          `json:"provider"`
-	Release       string          `json:"release"`
-	AccountRef    string          `json:"account_ref"`
-	Configuration json.RawMessage `json:"configuration"`
-	Subject       Subject         `json:"subject"`
-	Now           time.Time       `json:"now"`
+	RequestID           string          `json:"request_id"`
+	ConnectionID        string          `json:"connection_id"`
+	Provider            string          `json:"provider"`
+	Release             string          `json:"release"`
+	AccountRef          string          `json:"account_ref"`
+	Configuration       json.RawMessage `json:"configuration"`
+	Subject             Subject         `json:"subject"`
+	Authorization       Authorization   `json:"authorization"`
+	AuthorizationDigest string          `json:"authorization_digest"`
+	Now                 time.Time       `json:"now"`
 }
 
 type Material struct {
@@ -73,6 +151,7 @@ type Material struct {
 	ExpiresAt           time.Time       `json:"expires_at"`
 	TargetIdentity      string          `json:"target_identity"`
 	RevocationSemantics string          `json:"revocation_semantics"`
+	AuthorizationDigest string          `json:"authorization_digest"`
 }
 
 // ConfigureRequest contains only immutable session and adapter coordinates.

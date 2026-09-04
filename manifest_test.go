@@ -11,7 +11,7 @@ func fixtureManifest() Manifest {
 	return Manifest{
 		Protocol:      ManifestProtocol,
 		Publisher:     Publisher{ID: "fixture-labs", KeyID: "fixture-2026"},
-		Compatibility: Compatibility{Protocol: ManifestProtocol, Major: 1},
+		Compatibility: Compatibility{Protocol: ManifestProtocol, Major: 2},
 		Release:       "orbital-fabric.session@3.7.1", Provider: "orbital-fabric",
 		ConfigurationSchema: map[string]any{"type": "object", "required": []string{"station"}},
 		Credential:          Credential{Kind: "orbital.exec-token.v9", MaximumTTLSeconds: 300, RevocationSemantics: "renewal-stops-immediately", PayloadSchema: map[string]any{"type": "object"}},
@@ -53,7 +53,7 @@ func TestSignedManifestRejectsTamperAndUnknownPublisher(t *testing.T) {
 
 func TestManifestRejectsIncompatibleAndMutableEndpoint(t *testing.T) {
 	manifest := fixtureManifest()
-	manifest.Compatibility.Major = 2
+	manifest.Compatibility.Major = 1
 	if _, err := Digest(manifest); err == nil {
 		t.Fatal("incompatible manifest accepted")
 	}

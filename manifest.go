@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	ManifestProtocol = "misconfig.provider-adapter/v1"
-	BrokerProtocol   = "misconfig.credential-broker/v1"
+	ManifestProtocol = "misconfig.provider-adapter/v2"
+	BrokerProtocol   = "misconfig.credential-broker/v2"
 	RendererProtocol = "misconfig.credential-renderer/v1"
 )
 
@@ -85,7 +85,7 @@ type TrustedPublisher struct {
 }
 
 func (m Manifest) Validate() error {
-	if m.Protocol != ManifestProtocol || m.Compatibility.Protocol != ManifestProtocol || m.Compatibility.Major != 1 {
+	if m.Protocol != ManifestProtocol || m.Compatibility.Protocol != ManifestProtocol || m.Compatibility.Major != 2 {
 		return errors.New("provider adapter protocol is incompatible")
 	}
 	for label, value := range map[string]string{
