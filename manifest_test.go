@@ -15,8 +15,11 @@ func fixtureManifest() Manifest {
 		Release:       "orbital-fabric.session@3.7.1", Provider: "orbital-fabric",
 		ConfigurationSchema: map[string]any{"type": "object", "required": []string{"station"}},
 		Credential:          Credential{Kind: "orbital.exec-token.v9", MaximumTTLSeconds: 300, RevocationSemantics: "renewal-stops-immediately", PayloadSchema: map[string]any{"type": "object"}},
-		Renderer:            Renderer{Protocol: RendererProtocol, Executable: "misconfig-orbital-adapter", ArtifactDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		Broker:              Broker{Protocol: BrokerProtocol, Endpoint: "https://orbital.example.test"},
+		Renderer: Renderer{Protocol: RendererProtocol, Executable: "misconfig-orbital-adapter", Artifacts: []RendererArtifact{
+			{OS: "darwin", Arch: "arm64", Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			{OS: "linux", Arch: "amd64", Digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		}},
+		Broker: Broker{Protocol: BrokerProtocol, Endpoint: "https://orbital.example.test"},
 	}
 }
 
@@ -75,5 +78,28 @@ func TestManifestRejectsRendererPathAndInvalidSensitiveEnvironment(t *testing.T)
 	manifest.Renderer.SensitiveEnvironment = []string{"ORBITAL_TOKEN", "ORBITAL_TOKEN"}
 	if _, err := Digest(manifest); err == nil {
 		t.Fatal("duplicate sensitive environment accepted")
+	}
+}
+
+func TestManifestRequiresUniqueDigestPinnedRendererPlatforms(t *testing.T) {
+	manifest := fixtureManifest()
+	manifest.Renderer.Artifacts = nil
+	if _, err := Digest(manifest); err == nil {
+		t.Fatal("renderer without platform artifacts accepted")
+	}
+	manifest = fixtureManifest()
+	manifest.Renderer.Artifacts[0].Digest = "latest"
+	if _, err := Digest(manifest); err == nil {
+		t.Fatal("unpinned renderer artifact accepted")
+	}
+	manifest = fixtureManifest()
+	manifest.Renderer.Artifacts = append(manifest.Renderer.Artifacts, manifest.Renderer.Artifacts[0])
+	if _, err := Digest(manifest); err == nil {
+		t.Fatal("duplicate renderer platform accepted")
+	}
+	manifest = fixtureManifest()
+	manifest.Renderer.Artifacts[0].OS = "darwin/../../tmp"
+	if _, err := Digest(manifest); err == nil {
+		t.Fatal("invalid renderer platform accepted")
 	}
 }

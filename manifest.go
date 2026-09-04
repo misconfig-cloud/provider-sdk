@@ -43,10 +43,16 @@ type Credential struct {
 }
 
 type Renderer struct {
-	Protocol             string   `json:"protocol"`
-	Executable           string   `json:"executable"`
-	ArtifactDigest       string   `json:"artifact_digest"`
-	SensitiveEnvironment []string `json:"sensitive_environment,omitempty"`
+	Protocol             string             `json:"protocol"`
+	Executable           string             `json:"executable"`
+	Artifacts            []RendererArtifact `json:"artifacts"`
+	SensitiveEnvironment []string           `json:"sensitive_environment,omitempty"`
+}
+
+type RendererArtifact struct {
+	OS     string `json:"os"`
+	Arch   string `json:"arch"`
+	Digest string `json:"digest"`
 }
 
 type Broker struct {
@@ -94,8 +100,19 @@ func (m Manifest) Validate() error {
 	if m.Credential.MaximumTTLSeconds <= 0 || m.Credential.MaximumTTLSeconds > 86400 {
 		return errors.New("maximum credential ttl is invalid")
 	}
-	if m.Renderer.Protocol != RendererProtocol || !executablePattern.MatchString(m.Renderer.Executable) || !digestPattern.MatchString(m.Renderer.ArtifactDigest) {
+	if m.Renderer.Protocol != RendererProtocol || !executablePattern.MatchString(m.Renderer.Executable) || len(m.Renderer.Artifacts) == 0 {
 		return errors.New("renderer contract is invalid")
+	}
+	seenArtifacts := map[string]struct{}{}
+	for _, artifact := range m.Renderer.Artifacts {
+		identity := artifact.OS + "\x00" + artifact.Arch
+		if !executablePattern.MatchString(artifact.OS) || !executablePattern.MatchString(artifact.Arch) || !digestPattern.MatchString(artifact.Digest) {
+			return errors.New("renderer artifact contract is invalid")
+		}
+		if _, exists := seenArtifacts[identity]; exists {
+			return errors.New("renderer artifact platform is duplicated")
+		}
+		seenArtifacts[identity] = struct{}{}
 	}
 	seenEnvironment := map[string]struct{}{}
 	for _, name := range m.Renderer.SensitiveEnvironment {

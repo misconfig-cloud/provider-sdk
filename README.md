@@ -12,7 +12,7 @@ verify, and the tenant admits that exact digest.
 ## Contracts
 
 - `Manifest` describes a provider, short-lived credential protocol, local
-  renderer, schemas, and exact release identity.
+  renderer, per-platform artifact digests, schemas, and exact release identity.
 - `Sign` and `Verify` bind that manifest to an Ed25519 publisher key.
 - `HTTPHandler` and `HTTPClient` implement the authenticated broker protocol.
 - `ConfigureRequest` and `RenderRequest` let a digest-pinned local executable
