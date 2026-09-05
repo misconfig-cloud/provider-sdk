@@ -137,6 +137,29 @@ Core storage/rollback protection, signing, local runtime, action enforcement
 and old-client rejection must ship together before removing the current
 same-operation ambiguity refusal from guided task authoring.
 
+## Outbound native target verification
+
+An outbound release may explicitly declare
+`Broker.ConnectionVerification = ConnectionVerificationProtocol`. This changes
+the signed manifest identity. Registration/heartbeat alone is not native target
+verification, and existing releases do not opt in by updating the SDK.
+
+Handle `OutboundPhaseVerifyConnection` with `Dispatch.VerifyConnection` and a
+`ConnectionVerificationService`. Its implementation must perform a bounded,
+read-only native target check and return `ConnectionVerificationResult`: exact
+request digest, target identity, verification time and a redacted evidence
+digest. Do not return credentials or substitute the daemon ID for the target.
+`VerifyConnectionRequestDigest` preserves configuration-number precision.
+Both dispatch and response checks reject stale/substituted work before it can
+become verified connection authority. Retaining proof and validating tenant
+admission remain control-plane responsibilities.
+
+This exchange is outbound-only. Inbound adapters retain their existing
+authenticated verification protocol. No adapter is considered accepted merely
+because it publishes the declaration. Actual target, native scope and expiry
+tests are required. This SDK addition does not implement task-deadline
+negotiation, native credential enforcement, or local process isolation.
+
 ## Compatibility
 
 The module follows semantic versioning. Protocol major `2` binds every issued

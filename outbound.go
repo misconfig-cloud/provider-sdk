@@ -16,6 +16,7 @@ const (
 	OutboundPhaseExecuteAction     = "execute_action"
 	OutboundPhaseVerifyAction      = "verify_action"
 	OutboundPhaseDiscoverResources = "discover_resources"
+	OutboundPhaseVerifyConnection  = "verify_connection"
 )
 
 // RuntimeRegistration identifies one independently running outbound adapter.
@@ -69,7 +70,7 @@ func (d Dispatch) Validate(now time.Time) error {
 		return errors.New("outbound dispatch identity or lifetime is invalid")
 	}
 	switch d.Phase {
-	case OutboundPhaseIssueCredential, OutboundPhaseExecuteAction, OutboundPhaseVerifyAction, OutboundPhaseDiscoverResources:
+	case OutboundPhaseIssueCredential, OutboundPhaseExecuteAction, OutboundPhaseVerifyAction, OutboundPhaseDiscoverResources, OutboundPhaseVerifyConnection:
 	default:
 		return errors.New("outbound dispatch phase is invalid")
 	}
@@ -84,7 +85,7 @@ func (d Dispatch) Validate(now time.Time) error {
 // use exact-number canonical JSON so configuration coordinates cannot collide
 // through float64 rounding. Call this when creating discovery dispatches.
 func DispatchRequestDigest(phase string, request json.RawMessage) (string, error) {
-	if phase != OutboundPhaseDiscoverResources {
+	if phase != OutboundPhaseDiscoverResources && phase != OutboundPhaseVerifyConnection {
 		return JSONDigest(request)
 	}
 	decoded, err := decodeParameterJSON(request)
@@ -119,7 +120,7 @@ func (r DispatchResult) Validate() error {
 		return errors.New("outbound dispatch result identity is invalid")
 	}
 	switch r.Phase {
-	case OutboundPhaseIssueCredential, OutboundPhaseExecuteAction, OutboundPhaseVerifyAction, OutboundPhaseDiscoverResources:
+	case OutboundPhaseIssueCredential, OutboundPhaseExecuteAction, OutboundPhaseVerifyAction, OutboundPhaseDiscoverResources, OutboundPhaseVerifyConnection:
 	default:
 		return errors.New("outbound dispatch result phase is invalid")
 	}

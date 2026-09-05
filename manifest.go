@@ -62,10 +62,11 @@ type RendererArtifact struct {
 }
 
 type Broker struct {
-	Protocol         string            `json:"protocol"`
-	Transport        string            `json:"transport,omitempty"`
-	Endpoint         string            `json:"endpoint,omitempty"`
-	RuntimeArtifacts []RuntimeArtifact `json:"runtime_artifacts,omitempty"`
+	Protocol               string            `json:"protocol"`
+	Transport              string            `json:"transport,omitempty"`
+	Endpoint               string            `json:"endpoint,omitempty"`
+	RuntimeArtifacts       []RuntimeArtifact `json:"runtime_artifacts,omitempty"`
+	ConnectionVerification string            `json:"connection_verification,omitempty"`
 }
 
 // RuntimeArtifact is an immutable, publisher-owned executable identity used
@@ -217,6 +218,12 @@ func (m Manifest) Validate() error {
 	}
 	if m.Broker.Protocol != BrokerProtocol {
 		return errors.New("broker protocol is invalid")
+	}
+	if m.Broker.ConnectionVerification != "" && m.Broker.ConnectionVerification != ConnectionVerificationProtocol {
+		return errors.New("connection verification protocol is incompatible")
+	}
+	if m.Broker.ConnectionVerification != "" && m.Broker.TransportMode() != BrokerTransportOutboundPull {
+		return errors.New("connection verification exchange requires outbound transport")
 	}
 	switch m.Broker.TransportMode() {
 	case BrokerTransportInboundHTTPS:
