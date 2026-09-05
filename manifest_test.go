@@ -14,12 +14,45 @@ func fixtureManifest() Manifest {
 		Compatibility: Compatibility{Protocol: ManifestProtocol, Major: 2},
 		Release:       "orbital-fabric.session@3.7.1", Provider: "orbital-fabric",
 		ConfigurationSchema: map[string]any{"type": "object", "required": []string{"station"}},
-		Credential:          Credential{Kind: "orbital.exec-token.v9", MaximumTTLSeconds: 300, RevocationSemantics: "renewal-stops-immediately", PayloadSchema: map[string]any{"type": "object"}},
-		Renderer: Renderer{Protocol: RendererProtocol, Executable: "misconfig-orbital-adapter", Artifacts: []RendererArtifact{
+		Credential:          &Credential{Kind: "orbital.exec-token.v9", MaximumTTLSeconds: 300, RevocationSemantics: "renewal-stops-immediately", PayloadSchema: map[string]any{"type": "object"}},
+		Renderer: &Renderer{Protocol: RendererProtocol, Executable: "misconfig-orbital-adapter", Artifacts: []RendererArtifact{
 			{OS: "darwin", Arch: "arm64", Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			{OS: "linux", Arch: "amd64", Digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		}},
 		Broker: Broker{Protocol: BrokerProtocol, Endpoint: "https://orbital.example.test"},
+	}
+}
+
+func TestActionOnlyManifestIsExplicitAndValid(t *testing.T) {
+	manifest := fixtureManifest()
+	manifest.Credential = nil
+	manifest.Renderer = nil
+	manifest.Actions = []ActionCapability{{
+		Ref: "unfamiliar.object.adjust@1", Operation: "AdjustObject", MaximumTTLSeconds: 120,
+		ParametersSchema: map[string]any{"type": "object"}, ExecutionSchema: map[string]any{"type": "object"}, VerificationSchema: map[string]any{"type": "object"},
+	}}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("action-only release rejected: %v", err)
+	}
+	if manifest.SupportsCredentials() {
+		t.Fatal("action-only release claims credential support")
+	}
+	manifest.Actions = nil
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("empty release was accepted")
+	}
+}
+
+func TestCredentialAndRendererAreAtomic(t *testing.T) {
+	manifest := fixtureManifest()
+	manifest.Renderer = nil
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("credential without renderer was accepted")
+	}
+	manifest = fixtureManifest()
+	manifest.Credential = nil
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("renderer without credential was accepted")
 	}
 }
 

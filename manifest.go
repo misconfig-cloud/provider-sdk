@@ -135,8 +135,8 @@ type Manifest struct {
 	Release             string             `json:"release"`
 	Provider            string             `json:"provider"`
 	ConfigurationSchema any                `json:"configuration_schema"`
-	Credential          Credential         `json:"credential"`
-	Renderer            Renderer           `json:"renderer"`
+	Credential          *Credential        `json:"credential,omitempty"`
+	Renderer            *Renderer          `json:"renderer,omitempty"`
 	Broker              Broker             `json:"broker"`
 	Actions             []ActionCapability `json:"actions,omitempty"`
 }
@@ -159,39 +159,51 @@ func (m Manifest) Validate() error {
 	}
 	for label, value := range map[string]string{
 		"publisher id": m.Publisher.ID, "publisher key id": m.Publisher.KeyID,
-		"release": m.Release, "provider": m.Provider, "credential kind": m.Credential.Kind,
-		"revocation semantics": m.Credential.RevocationSemantics,
+		"release": m.Release, "provider": m.Provider,
 	} {
 		if !identityPattern.MatchString(value) {
 			return fmt.Errorf("%s is invalid", label)
 		}
 	}
-	if m.Credential.MaximumTTLSeconds <= 0 || m.Credential.MaximumTTLSeconds > 86400 {
-		return errors.New("maximum credential ttl is invalid")
+	if (m.Credential == nil) != (m.Renderer == nil) {
+		return errors.New("credential and renderer contracts must be published together")
 	}
-	if m.Renderer.Protocol != RendererProtocol || !executablePattern.MatchString(m.Renderer.Executable) || len(m.Renderer.Artifacts) == 0 {
-		return errors.New("renderer contract is invalid")
-	}
-	seenArtifacts := map[string]struct{}{}
-	for _, artifact := range m.Renderer.Artifacts {
-		identity := artifact.OS + "\x00" + artifact.Arch
-		if !executablePattern.MatchString(artifact.OS) || !executablePattern.MatchString(artifact.Arch) || !digestPattern.MatchString(artifact.Digest) {
-			return errors.New("renderer artifact contract is invalid")
+	if m.Credential != nil {
+		for label, value := range map[string]string{
+			"credential kind":      m.Credential.Kind,
+			"revocation semantics": m.Credential.RevocationSemantics,
+		} {
+			if !identityPattern.MatchString(value) {
+				return fmt.Errorf("%s is invalid", label)
+			}
 		}
-		if _, exists := seenArtifacts[identity]; exists {
-			return errors.New("renderer artifact platform is duplicated")
+		if m.Credential.MaximumTTLSeconds <= 0 || m.Credential.MaximumTTLSeconds > 86400 {
+			return errors.New("maximum credential ttl is invalid")
 		}
-		seenArtifacts[identity] = struct{}{}
-	}
-	seenEnvironment := map[string]struct{}{}
-	for _, name := range m.Renderer.SensitiveEnvironment {
-		if !environmentPattern.MatchString(name) {
-			return errors.New("renderer sensitive environment contract is invalid")
+		if m.Renderer.Protocol != RendererProtocol || !executablePattern.MatchString(m.Renderer.Executable) || len(m.Renderer.Artifacts) == 0 {
+			return errors.New("renderer contract is invalid")
 		}
-		if _, exists := seenEnvironment[name]; exists {
-			return errors.New("renderer sensitive environment contract is duplicated")
+		seenArtifacts := map[string]struct{}{}
+		for _, artifact := range m.Renderer.Artifacts {
+			identity := artifact.OS + "\x00" + artifact.Arch
+			if !executablePattern.MatchString(artifact.OS) || !executablePattern.MatchString(artifact.Arch) || !digestPattern.MatchString(artifact.Digest) {
+				return errors.New("renderer artifact contract is invalid")
+			}
+			if _, exists := seenArtifacts[identity]; exists {
+				return errors.New("renderer artifact platform is duplicated")
+			}
+			seenArtifacts[identity] = struct{}{}
 		}
-		seenEnvironment[name] = struct{}{}
+		seenEnvironment := map[string]struct{}{}
+		for _, name := range m.Renderer.SensitiveEnvironment {
+			if !environmentPattern.MatchString(name) {
+				return errors.New("renderer sensitive environment contract is invalid")
+			}
+			if _, exists := seenEnvironment[name]; exists {
+				return errors.New("renderer sensitive environment contract is duplicated")
+			}
+			seenEnvironment[name] = struct{}{}
+		}
 	}
 	if m.Broker.Protocol != BrokerProtocol {
 		return errors.New("broker protocol is invalid")
@@ -226,8 +238,10 @@ func (m Manifest) Validate() error {
 	if err := validateSchema(m.ConfigurationSchema, "configuration"); err != nil {
 		return err
 	}
-	if err := validateSchema(m.Credential.PayloadSchema, "credential payload"); err != nil {
-		return err
+	if m.Credential != nil {
+		if err := validateSchema(m.Credential.PayloadSchema, "credential payload"); err != nil {
+			return err
+		}
 	}
 	seenActions := map[string]struct{}{}
 	for _, action := range m.Actions {
@@ -239,7 +253,14 @@ func (m Manifest) Validate() error {
 		}
 		seenActions[action.Ref] = struct{}{}
 	}
+	if m.Credential == nil && len(m.Actions) == 0 {
+		return errors.New("provider release must publish credentials, actions, or both")
+	}
 	return nil
+}
+
+func (m Manifest) SupportsCredentials() bool {
+	return m.Credential != nil && m.Renderer != nil
 }
 
 func runtimeReferenceValid(value string) bool {
