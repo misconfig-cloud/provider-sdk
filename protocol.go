@@ -15,6 +15,19 @@ import (
 var environmentPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
 var authorizationDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
+func JSONDigest(value json.RawMessage) (string, error) {
+	var decoded any
+	if len(value) == 0 || json.Unmarshal(value, &decoded) != nil {
+		return "", errors.New("value is not valid JSON")
+	}
+	canonical, err := json.Marshal(decoded)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
 type PrepareRequest struct {
 	RequestID    string          `json:"request_id"`
 	TenantID     string          `json:"tenant_id"`
@@ -152,6 +165,132 @@ type Material struct {
 	TargetIdentity      string          `json:"target_identity"`
 	RevocationSemantics string          `json:"revocation_semantics"`
 	AuthorizationDigest string          `json:"authorization_digest"`
+}
+
+// ActionAuthority is the single-action authority consumed by an adapter. It
+// is distinct from a credential lease: it binds one approved action digest to
+// one capability release and expires quickly.
+type ActionAuthority struct {
+	ID               string    `json:"id"`
+	ActionDigest     string    `json:"action_digest"`
+	CapabilityDigest string    `json:"capability_digest"`
+	ApprovedBy       string    `json:"approved_by"`
+	ApprovedAt       time.Time `json:"approved_at"`
+	ExpiresAt        time.Time `json:"expires_at"`
+}
+
+func (a ActionAuthority) Validate(now time.Time, actionDigest, capabilityDigest string, maximumTTL time.Duration) error {
+	if strings.TrimSpace(a.ID) == "" || strings.TrimSpace(a.ApprovedBy) == "" ||
+		a.ActionDigest != actionDigest || a.CapabilityDigest != capabilityDigest ||
+		!authorizationDigestPattern.MatchString(a.ActionDigest) || !authorizationDigestPattern.MatchString(a.CapabilityDigest) ||
+		a.ApprovedAt.IsZero() || a.ExpiresAt.IsZero() || a.ExpiresAt.Before(a.ApprovedAt) ||
+		!a.ExpiresAt.After(now) || a.ExpiresAt.After(now.Add(maximumTTL).Add(time.Second)) {
+		return errors.New("action authority is invalid or expired")
+	}
+	return nil
+}
+
+type ExecuteActionRequest struct {
+	RequestID        string          `json:"request_id"`
+	ConnectionID     string          `json:"connection_id"`
+	Provider         string          `json:"provider"`
+	Release          string          `json:"release"`
+	AccountRef       string          `json:"account_ref"`
+	Configuration    json.RawMessage `json:"configuration"`
+	Subject          Subject         `json:"subject"`
+	CapabilityRef    string          `json:"capability_ref"`
+	CapabilityDigest string          `json:"capability_digest"`
+	ActionID         string          `json:"action_id"`
+	ActionDigest     string          `json:"action_digest"`
+	Operation        string          `json:"operation"`
+	Resource         string          `json:"resource"`
+	Environment      string          `json:"environment"`
+	Parameters       json.RawMessage `json:"parameters"`
+	Authority        ActionAuthority `json:"authority"`
+	Now              time.Time       `json:"now"`
+}
+
+func (r ExecuteActionRequest) Validate(capability ActionCapability) error {
+	for _, value := range []string{r.RequestID, r.ConnectionID, r.Provider, r.Release, r.AccountRef, r.Subject.TenantID, r.Subject.ActorID, r.Subject.DeviceID, r.Subject.SessionID, r.Subject.ProfileID, r.CapabilityRef, r.ActionID, r.Operation, r.Resource, r.Environment} {
+		if strings.TrimSpace(value) == "" {
+			return errors.New("typed action request identity is incomplete")
+		}
+	}
+	capabilityDigest, err := ActionCapabilityDigest(capability)
+	if err != nil || r.CapabilityRef != capability.Ref || r.Operation != capability.Operation || r.CapabilityDigest != capabilityDigest || !authorizationDigestPattern.MatchString(r.ActionDigest) {
+		return errors.New("typed action capability binding is invalid")
+	}
+	if len(r.Configuration) == 0 || !json.Valid(r.Configuration) || len(r.Parameters) == 0 || !json.Valid(r.Parameters) || r.Now.IsZero() {
+		return errors.New("typed action request payload is invalid")
+	}
+	if r.Subject.AccountRef != r.AccountRef || r.Subject.Environment != r.Environment {
+		return errors.New("typed action subject is outside the requested scope")
+	}
+	return r.Authority.Validate(r.Now, r.ActionDigest, r.CapabilityDigest, time.Duration(capability.MaximumTTLSeconds)*time.Second)
+}
+
+// ActionExecution is a redacted provider receipt. Provider credentials and
+// raw response payloads are forbidden; the adapter returns only stable
+// identities and digests needed for independent verification and audit.
+type ActionExecution struct {
+	ProviderReceipt   string          `json:"provider_receipt"`
+	ExecutionIdentity string          `json:"execution_identity"`
+	ExecutedAt        time.Time       `json:"executed_at"`
+	Output            json.RawMessage `json:"output"`
+	OutputDigest      string          `json:"output_digest"`
+}
+
+func (e ActionExecution) Validate() error {
+	if strings.TrimSpace(e.ProviderReceipt) == "" || strings.TrimSpace(e.ExecutionIdentity) == "" || e.ExecutedAt.IsZero() {
+		return errors.New("action execution identity is incomplete")
+	}
+	digest, err := JSONDigest(e.Output)
+	if err != nil || digest != e.OutputDigest {
+		return errors.New("action execution output digest does not match")
+	}
+	return nil
+}
+
+type VerifyActionRequest struct {
+	RequestID        string          `json:"request_id"`
+	ConnectionID     string          `json:"connection_id"`
+	Provider         string          `json:"provider"`
+	Release          string          `json:"release"`
+	AccountRef       string          `json:"account_ref"`
+	Configuration    json.RawMessage `json:"configuration"`
+	Subject          Subject         `json:"subject"`
+	CapabilityRef    string          `json:"capability_ref"`
+	CapabilityDigest string          `json:"capability_digest"`
+	ActionID         string          `json:"action_id"`
+	ActionDigest     string          `json:"action_digest"`
+	Operation        string          `json:"operation"`
+	Resource         string          `json:"resource"`
+	Environment      string          `json:"environment"`
+	Parameters       json.RawMessage `json:"parameters"`
+	Execution        ActionExecution `json:"execution"`
+	Now              time.Time       `json:"now"`
+}
+
+type ActionVerification struct {
+	State           string          `json:"state"`
+	VerifiedAt      time.Time       `json:"verified_at"`
+	VerifierRelease string          `json:"verifier_release"`
+	Evidence        json.RawMessage `json:"evidence"`
+	EvidenceDigest  string          `json:"evidence_digest"`
+}
+
+func (v ActionVerification) Validate() error {
+	if v.State != "verified" && v.State != "failed" {
+		return errors.New("action verification state is invalid")
+	}
+	if v.VerifiedAt.IsZero() || strings.TrimSpace(v.VerifierRelease) == "" {
+		return errors.New("action verification identity is incomplete")
+	}
+	digest, err := JSONDigest(v.Evidence)
+	if err != nil || digest != v.EvidenceDigest {
+		return errors.New("action verification evidence digest does not match")
+	}
+	return nil
 }
 
 // ConfigureRequest contains only immutable session and adapter coordinates.

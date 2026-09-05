@@ -103,3 +103,26 @@ func TestManifestRequiresUniqueDigestPinnedRendererPlatforms(t *testing.T) {
 		t.Fatal("invalid renderer platform accepted")
 	}
 }
+
+func TestManifestAcceptsProviderNeutralTypedActionAndRejectsWidening(t *testing.T) {
+	manifest := fixtureManifest()
+	manifest.Actions = []ActionCapability{{
+		Ref: "orbital-fabric.station.throttle@1.0.0", Operation: "ThrottleStation",
+		MaximumTTLSeconds: 300, Reversible: true,
+		ParametersSchema:   map[string]any{"type": "object", "required": []string{"rate"}},
+		ExecutionSchema:    map[string]any{"type": "object", "required": []string{"change_id"}},
+		VerificationSchema: map[string]any{"type": "object", "required": []string{"observed_rate"}},
+	}}
+	if _, err := Digest(manifest); err != nil {
+		t.Fatalf("provider-neutral action rejected: %v", err)
+	}
+	manifest.Actions = append(manifest.Actions, manifest.Actions[0])
+	if _, err := Digest(manifest); err == nil {
+		t.Fatal("duplicate action capability accepted")
+	}
+	manifest = fixtureManifest()
+	manifest.Actions = []ActionCapability{{Ref: "orbital.action@1", Operation: "DoThing", MaximumTTLSeconds: 3600, ParametersSchema: map[string]any{"type": "object"}, ExecutionSchema: map[string]any{"type": "object"}, VerificationSchema: map[string]any{"type": "object"}}}
+	if _, err := Digest(manifest); err == nil {
+		t.Fatal("overlong action authority accepted")
+	}
+}

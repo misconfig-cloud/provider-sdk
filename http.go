@@ -23,6 +23,11 @@ type BrokerImplementation interface {
 	Issue(context.Context, IssueRequest) (Material, error)
 }
 
+type ActionImplementation interface {
+	ExecuteAction(context.Context, ExecuteActionRequest) (ActionExecution, error)
+	VerifyAction(context.Context, VerifyActionRequest) (ActionVerification, error)
+}
+
 type HTTPClient struct {
 	Endpoint       string
 	SharedSecret   string
@@ -48,6 +53,18 @@ func (c HTTPClient) Verify(ctx context.Context, request VerifyRequest) (Verifica
 func (c HTTPClient) Issue(ctx context.Context, request IssueRequest) (Material, error) {
 	var response Material
 	err := c.call(ctx, "/v1/issue", request, &response)
+	return response, err
+}
+
+func (c HTTPClient) ExecuteAction(ctx context.Context, request ExecuteActionRequest) (ActionExecution, error) {
+	var response ActionExecution
+	err := c.call(ctx, "/v1/actions/execute", request, &response)
+	return response, err
+}
+
+func (c HTTPClient) VerifyAction(ctx context.Context, request VerifyActionRequest) (ActionVerification, error) {
+	var response ActionVerification
+	err := c.call(ctx, "/v1/actions/verify", request, &response)
 	return response, err
 }
 
@@ -123,6 +140,7 @@ func randomNonce() (string, error) {
 
 type HTTPHandler struct {
 	Implementation BrokerImplementation
+	Actions        ActionImplementation
 	SharedSecret   string
 	ManifestDigest string
 	Release        string
@@ -145,7 +163,57 @@ func (h *HTTPHandler) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /v1/prepare", h.handlePrepare)
 	mux.HandleFunc("POST /v1/verify", h.handleVerify)
 	mux.HandleFunc("POST /v1/issue", h.handleIssue)
+	if h.Actions != nil {
+		mux.HandleFunc("POST /v1/actions/execute", h.handleExecuteAction)
+		mux.HandleFunc("POST /v1/actions/verify", h.handleVerifyAction)
+	}
 	return mux, nil
+}
+
+func (h *HTTPHandler) handleExecuteAction(w http.ResponseWriter, r *http.Request) {
+	body, nonce, ok := h.authenticate(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	request, err := decodeStrict[ExecuteActionRequest](body)
+	if err != nil || request.Release != h.Release || h.Actions == nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	response, err := h.Actions.ExecuteAction(r.Context(), request)
+	if err != nil {
+		http.Error(w, "adapter failed", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := response.Validate(); err != nil {
+		http.Error(w, "adapter returned invalid execution", http.StatusBadGateway)
+		return
+	}
+	h.respond(w, nonce, response)
+}
+
+func (h *HTTPHandler) handleVerifyAction(w http.ResponseWriter, r *http.Request) {
+	body, nonce, ok := h.authenticate(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	request, err := decodeStrict[VerifyActionRequest](body)
+	if err != nil || request.Release != h.Release || h.Actions == nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	response, err := h.Actions.VerifyAction(r.Context(), request)
+	if err != nil {
+		http.Error(w, "adapter failed", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := response.Validate(); err != nil {
+		http.Error(w, "adapter returned invalid verification", http.StatusBadGateway)
+		return
+	}
+	h.respond(w, nonce, response)
 }
 
 func (h *HTTPHandler) authenticate(r *http.Request) ([]byte, string, bool) {

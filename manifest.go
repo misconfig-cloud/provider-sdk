@@ -21,6 +21,7 @@ const (
 
 var (
 	identityPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9._/@:-]{0,127}$`)
+	operationPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,127}$`)
 	executablePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 	digestPattern     = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
@@ -60,16 +61,60 @@ type Broker struct {
 	Endpoint string `json:"endpoint"`
 }
 
+// ActionCapability is an immutable, provider-owned typed action contract. The
+// control plane treats every field as signed runtime data: it never maintains
+// a provider or operation enum. Execute and verify schemas deliberately remain
+// separate so an adapter cannot claim that a successful API response proves
+// the requested provider state.
+type ActionCapability struct {
+	Ref                string `json:"ref"`
+	Operation          string `json:"operation"`
+	MaximumTTLSeconds  int64  `json:"maximum_ttl_seconds"`
+	Reversible         bool   `json:"reversible"`
+	ParametersSchema   any    `json:"parameters_schema"`
+	ExecutionSchema    any    `json:"execution_schema"`
+	VerificationSchema any    `json:"verification_schema"`
+}
+
+func (a ActionCapability) Validate() error {
+	if !identityPattern.MatchString(a.Ref) || !operationPattern.MatchString(a.Operation) {
+		return errors.New("action capability identity is invalid")
+	}
+	if a.MaximumTTLSeconds <= 0 || a.MaximumTTLSeconds > 900 {
+		return errors.New("action capability authority ttl is invalid")
+	}
+	if err := validateSchema(a.ParametersSchema, "action parameters"); err != nil {
+		return err
+	}
+	if err := validateSchema(a.ExecutionSchema, "action execution"); err != nil {
+		return err
+	}
+	return validateSchema(a.VerificationSchema, "action verification")
+}
+
+func ActionCapabilityDigest(action ActionCapability) (string, error) {
+	if err := action.Validate(); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(action)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
 type Manifest struct {
-	Protocol            string        `json:"protocol"`
-	Publisher           Publisher     `json:"publisher"`
-	Compatibility       Compatibility `json:"compatibility"`
-	Release             string        `json:"release"`
-	Provider            string        `json:"provider"`
-	ConfigurationSchema any           `json:"configuration_schema"`
-	Credential          Credential    `json:"credential"`
-	Renderer            Renderer      `json:"renderer"`
-	Broker              Broker        `json:"broker"`
+	Protocol            string             `json:"protocol"`
+	Publisher           Publisher          `json:"publisher"`
+	Compatibility       Compatibility      `json:"compatibility"`
+	Release             string             `json:"release"`
+	Provider            string             `json:"provider"`
+	ConfigurationSchema any                `json:"configuration_schema"`
+	Credential          Credential         `json:"credential"`
+	Renderer            Renderer           `json:"renderer"`
+	Broker              Broker             `json:"broker"`
+	Actions             []ActionCapability `json:"actions,omitempty"`
 }
 
 type SignedManifest struct {
@@ -134,7 +179,20 @@ func (m Manifest) Validate() error {
 	if err := validateSchema(m.ConfigurationSchema, "configuration"); err != nil {
 		return err
 	}
-	return validateSchema(m.Credential.PayloadSchema, "credential payload")
+	if err := validateSchema(m.Credential.PayloadSchema, "credential payload"); err != nil {
+		return err
+	}
+	seenActions := map[string]struct{}{}
+	for _, action := range m.Actions {
+		if err := action.Validate(); err != nil {
+			return err
+		}
+		if _, exists := seenActions[action.Ref]; exists {
+			return errors.New("action capability is duplicated")
+		}
+		seenActions[action.Ref] = struct{}{}
+	}
+	return nil
 }
 
 func validateSchema(value any, label string) error {
