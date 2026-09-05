@@ -15,7 +15,10 @@ verify, and the tenant admits that exact digest.
 - `Manifest` describes a provider, short-lived credential protocol, local
   renderer, per-platform artifact digests, schemas, and exact release identity.
 - `Sign` and `Verify` bind that manifest to an Ed25519 publisher key.
-- `HTTPHandler` and `HTTPClient` implement the authenticated broker protocol.
+- `HTTPHandler` and `HTTPClient` implement the authenticated inbound broker
+  protocol. A signed release may instead declare `outbound-pull` and pin one
+  or more runnable artifacts; the same prepare, issue, execute, and verify
+  envelopes then travel through the tenant-isolated control-plane broker.
 - `ActionCapability` publishes separately signed parameter, execution, and
   verification schemas. `ExecuteActionRequest` consumes one short-lived,
   action-bound authority; `VerifyActionRequest` observes provider state again.

@@ -11,12 +11,16 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strings"
 )
 
 const (
 	ManifestProtocol = "misconfig.provider-adapter/v2"
 	BrokerProtocol   = "misconfig.credential-broker/v2"
 	RendererProtocol = "misconfig.credential-renderer/v1"
+
+	BrokerTransportInboundHTTPS = "inbound-https"
+	BrokerTransportOutboundPull = "outbound-pull"
 )
 
 var (
@@ -57,8 +61,28 @@ type RendererArtifact struct {
 }
 
 type Broker struct {
-	Protocol string `json:"protocol"`
-	Endpoint string `json:"endpoint"`
+	Protocol         string            `json:"protocol"`
+	Transport        string            `json:"transport,omitempty"`
+	Endpoint         string            `json:"endpoint,omitempty"`
+	RuntimeArtifacts []RuntimeArtifact `json:"runtime_artifacts,omitempty"`
+}
+
+// RuntimeArtifact is an immutable, publisher-owned executable identity used
+// by an outbound adapter. Kind and reference remain provider-neutral: a
+// publisher may identify an OCI image, native binary, package, appliance, or
+// another independently verifiable runtime. The control plane never executes
+// the reference and accepts registration only for an exact signed digest.
+type RuntimeArtifact struct {
+	Kind      string `json:"kind"`
+	Reference string `json:"reference"`
+	Digest    string `json:"digest"`
+}
+
+func (b Broker) TransportMode() string {
+	if b.Transport == "" {
+		return BrokerTransportInboundHTTPS
+	}
+	return b.Transport
 }
 
 // ActionCapability is an immutable, provider-owned typed action contract. The
@@ -172,9 +196,32 @@ func (m Manifest) Validate() error {
 	if m.Broker.Protocol != BrokerProtocol {
 		return errors.New("broker protocol is invalid")
 	}
-	endpoint, err := url.Parse(m.Broker.Endpoint)
-	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
-		return errors.New("broker endpoint must be an absolute https URL without credentials, query, or fragment")
+	switch m.Broker.TransportMode() {
+	case BrokerTransportInboundHTTPS:
+		endpoint, err := url.Parse(m.Broker.Endpoint)
+		if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return errors.New("inbound broker endpoint must be an absolute https URL without credentials, query, or fragment")
+		}
+		if len(m.Broker.RuntimeArtifacts) != 0 {
+			return errors.New("inbound broker cannot publish outbound runtime artifacts")
+		}
+	case BrokerTransportOutboundPull:
+		if strings.TrimSpace(m.Broker.Endpoint) != "" || len(m.Broker.RuntimeArtifacts) == 0 {
+			return errors.New("outbound broker requires a signed runtime artifact and no inbound endpoint")
+		}
+		seenRuntimeArtifacts := make(map[string]struct{}, len(m.Broker.RuntimeArtifacts))
+		for _, artifact := range m.Broker.RuntimeArtifacts {
+			identity := artifact.Kind + "\x00" + artifact.Reference
+			if !identityPattern.MatchString(artifact.Kind) || !runtimeReferenceValid(artifact.Reference) || !digestPattern.MatchString(artifact.Digest) {
+				return errors.New("outbound runtime artifact contract is invalid")
+			}
+			if _, exists := seenRuntimeArtifacts[identity]; exists {
+				return errors.New("outbound runtime artifact is duplicated")
+			}
+			seenRuntimeArtifacts[identity] = struct{}{}
+		}
+	default:
+		return errors.New("broker transport is invalid")
 	}
 	if err := validateSchema(m.ConfigurationSchema, "configuration"); err != nil {
 		return err
@@ -193,6 +240,19 @@ func (m Manifest) Validate() error {
 		seenActions[action.Ref] = struct{}{}
 	}
 	return nil
+}
+
+func runtimeReferenceValid(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 1024 {
+		return false
+	}
+	for _, character := range value {
+		if character <= 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func validateSchema(value any, label string) error {

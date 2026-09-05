@@ -64,6 +64,48 @@ func TestManifestRejectsIncompatibleAndMutableEndpoint(t *testing.T) {
 	}
 }
 
+func TestManifestAcceptsProviderNeutralOutboundPullAndPinsRuntime(t *testing.T) {
+	manifest := fixtureManifest()
+	manifest.Broker = Broker{
+		Protocol:  BrokerProtocol,
+		Transport: BrokerTransportOutboundPull,
+		RuntimeArtifacts: []RuntimeArtifact{{
+			Kind:      "oci",
+			Reference: "ghcr.io/fixture-labs/orbital-runtime",
+			Digest:    "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		}},
+	}
+	if _, err := Digest(manifest); err != nil {
+		t.Fatalf("provider-neutral outbound runtime rejected: %v", err)
+	}
+
+	manifest.Broker.Endpoint = "https://orbital.example.test"
+	if _, err := Digest(manifest); err == nil {
+		t.Fatal("outbound runtime with an inbound endpoint accepted")
+	}
+	manifest.Broker.Endpoint = ""
+	manifest.Broker.RuntimeArtifacts[0].Digest = "latest"
+	if _, err := Digest(manifest); err == nil {
+		t.Fatal("unpinned outbound runtime accepted")
+	}
+	manifest.Broker.RuntimeArtifacts[0].Digest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	manifest.Broker.RuntimeArtifacts = append(manifest.Broker.RuntimeArtifacts, manifest.Broker.RuntimeArtifacts[0])
+	if _, err := Digest(manifest); err == nil {
+		t.Fatal("duplicate outbound runtime accepted")
+	}
+}
+
+func TestLegacyInboundManifestCanonicalIdentityIsUnchanged(t *testing.T) {
+	manifest := fixtureManifest()
+	encoded, err := Canonical(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != `{"protocol":"misconfig.provider-adapter/v2","publisher":{"id":"fixture-labs","key_id":"fixture-2026"},"compatibility":{"protocol":"misconfig.provider-adapter/v2","major":2},"release":"orbital-fabric.session@3.7.1","provider":"orbital-fabric","configuration_schema":{"required":["station"],"type":"object"},"credential":{"kind":"orbital.exec-token.v9","maximum_ttl_seconds":300,"revocation_semantics":"renewal-stops-immediately","payload_schema":{"type":"object"}},"renderer":{"protocol":"misconfig.credential-renderer/v1","executable":"misconfig-orbital-adapter","artifacts":[{"os":"darwin","arch":"arm64","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"os":"linux","arch":"amd64","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]},"broker":{"protocol":"misconfig.credential-broker/v2","endpoint":"https://orbital.example.test"}}` {
+		t.Fatalf("legacy inbound canonical identity changed: %s", encoded)
+	}
+}
+
 func TestManifestRejectsRendererPathAndInvalidSensitiveEnvironment(t *testing.T) {
 	manifest := fixtureManifest()
 	manifest.Renderer.Executable = "../untrusted/renderer"
