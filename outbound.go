@@ -1,6 +1,8 @@
 package provideradapter
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -10,9 +12,10 @@ import (
 const (
 	OutboundRuntimeProtocol = "misconfig.provider-runtime/v1"
 
-	OutboundPhaseIssueCredential = "issue_credential"
-	OutboundPhaseExecuteAction   = "execute_action"
-	OutboundPhaseVerifyAction    = "verify_action"
+	OutboundPhaseIssueCredential   = "issue_credential"
+	OutboundPhaseExecuteAction     = "execute_action"
+	OutboundPhaseVerifyAction      = "verify_action"
+	OutboundPhaseDiscoverResources = "discover_resources"
 )
 
 // RuntimeRegistration identifies one independently running outbound adapter.
@@ -66,15 +69,34 @@ func (d Dispatch) Validate(now time.Time) error {
 		return errors.New("outbound dispatch identity or lifetime is invalid")
 	}
 	switch d.Phase {
-	case OutboundPhaseIssueCredential, OutboundPhaseExecuteAction, OutboundPhaseVerifyAction:
+	case OutboundPhaseIssueCredential, OutboundPhaseExecuteAction, OutboundPhaseVerifyAction, OutboundPhaseDiscoverResources:
 	default:
 		return errors.New("outbound dispatch phase is invalid")
 	}
-	digest, err := JSONDigest(d.Request)
+	digest, err := DispatchRequestDigest(d.Phase, d.Request)
 	if err != nil || digest != d.RequestDigest {
 		return errors.New("outbound dispatch request digest does not match")
 	}
 	return nil
+}
+
+// DispatchRequestDigest preserves legacy dispatch digests. Discovery requests
+// use exact-number canonical JSON so configuration coordinates cannot collide
+// through float64 rounding. Call this when creating discovery dispatches.
+func DispatchRequestDigest(phase string, request json.RawMessage) (string, error) {
+	if phase != OutboundPhaseDiscoverResources {
+		return JSONDigest(request)
+	}
+	decoded, err := decodeParameterJSON(request)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
 type DispatchResult struct {
@@ -97,7 +119,7 @@ func (r DispatchResult) Validate() error {
 		return errors.New("outbound dispatch result identity is invalid")
 	}
 	switch r.Phase {
-	case OutboundPhaseIssueCredential, OutboundPhaseExecuteAction, OutboundPhaseVerifyAction:
+	case OutboundPhaseIssueCredential, OutboundPhaseExecuteAction, OutboundPhaseVerifyAction, OutboundPhaseDiscoverResources:
 	default:
 		return errors.New("outbound dispatch result phase is invalid")
 	}

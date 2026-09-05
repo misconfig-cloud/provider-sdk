@@ -39,7 +39,7 @@ system.
 See [provider-fixture-orbital](https://github.com/misconfig-cloud/provider-fixture-orbital)
 for a deliberately unfamiliar acceptance provider.
 
-## Resource discovery (unreleased protocol foundation)
+## Resource discovery (SDK v0.7.0)
 
 An action can optionally publish `ResourceDiscovery` in its signed capability.
 `DiscoveryRequest` supports bounded search or exact-ID revalidation, never both.
@@ -54,9 +54,28 @@ The request digest preserves numeric precision and rejects duplicate JSON keys.
 
 Existing action and manifest bytes are unchanged when discovery is absent.
 Declaring discovery changes signed identity and requires a new admitted release.
-HTTP/outbound transport, persisted selection receipts and console authoring are
-not yet implemented by this protocol foundation. Do not advertise an adapter's
-guided resource picker just because it compiles against these types.
+Implement `ResourceDiscoveryImplementation` and configure a `DiscoveryService`
+with the verified immutable manifest and digest. `HTTPHandler.Discovery` exposes
+the authenticated `/v1/resources/discover` route; `HTTPClient.DiscoverResources`
+validates both request and response. Neither side falls back to unrestricted
+search for an unsupported capability.
+
+Outbound adapters handle `OutboundPhaseDiscoverResources` through
+`Dispatch.DiscoverResources`, which checks the dispatch lifetime, connection,
+exact release, capability and response before returning a page. Create these
+dispatches with `DispatchRequestDigest`; discovery uses precision-preserving
+JSON while existing phases retain their legacy digests. Old runtime versions
+reject the new phase. The control plane must dispatch discovery only to a
+release that explicitly declares support; upgrading the SDK is not enrollment.
+
+Both transports share the same validation and provider-deadline checks. The
+provider must honor context cancellation and perform read-only bounded queries.
+Transport authentication is not tenant authorization: admission, connection
+ownership, resource policy and selection-receipt persistence remain core duties.
+
+Hosted dispatch integration, persisted selection receipts and console authoring
+are not implemented by the SDK alone. Do not advertise an adapter's guided
+resource picker just because it compiles against these types.
 
 ## Exact resources and task limits
 

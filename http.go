@@ -141,6 +141,7 @@ func randomNonce() (string, error) {
 type HTTPHandler struct {
 	Implementation BrokerImplementation
 	Actions        ActionImplementation
+	Discovery      *DiscoveryService
 	SharedSecret   string
 	ManifestDigest string
 	Release        string
@@ -159,10 +160,21 @@ func (h *HTTPHandler) Handler() (http.Handler, error) {
 	if h.seen == nil {
 		h.seen = map[string]time.Time{}
 	}
+	if h.Discovery != nil {
+		if err := h.Discovery.Validate(); err != nil {
+			return nil, err
+		}
+		if h.Discovery.ManifestDigest != h.ManifestDigest || h.Discovery.Manifest.Release != h.Release || h.Discovery.Manifest.Broker.TransportMode() != BrokerTransportInboundHTTPS {
+			return nil, errors.New("discovery and HTTP release identities differ")
+		}
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/prepare", h.handlePrepare)
 	mux.HandleFunc("POST /v1/verify", h.handleVerify)
 	mux.HandleFunc("POST /v1/issue", h.handleIssue)
+	if h.Discovery != nil {
+		mux.HandleFunc("POST /v1/resources/discover", h.handleDiscoverResources)
+	}
 	if h.Actions != nil {
 		mux.HandleFunc("POST /v1/actions/execute", h.handleExecuteAction)
 		mux.HandleFunc("POST /v1/actions/verify", h.handleVerifyAction)
