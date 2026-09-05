@@ -41,10 +41,11 @@ type Compatibility struct {
 }
 
 type Credential struct {
-	Kind                string `json:"kind"`
-	MaximumTTLSeconds   int64  `json:"maximum_ttl_seconds"`
-	RevocationSemantics string `json:"revocation_semantics"`
-	PayloadSchema       any    `json:"payload_schema"`
+	Kind                  string   `json:"kind"`
+	MaximumTTLSeconds     int64    `json:"maximum_ttl_seconds"`
+	RevocationSemantics   string   `json:"revocation_semantics"`
+	PayloadSchema         any      `json:"payload_schema"`
+	AuthorizationFeatures []string `json:"authorization_features,omitempty"`
 }
 
 type Renderer struct {
@@ -169,6 +170,9 @@ func (m Manifest) Validate() error {
 		return errors.New("credential and renderer contracts must be published together")
 	}
 	if m.Credential != nil {
+		if err := ValidateAuthorizationFeatures(m.Credential.AuthorizationFeatures); err != nil {
+			return err
+		}
 		for label, value := range map[string]string{
 			"credential kind":      m.Credential.Kind,
 			"revocation semantics": m.Credential.RevocationSemantics,

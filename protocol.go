@@ -108,18 +108,24 @@ type Authorization struct {
 	AccountRef       string              `json:"account_ref"`
 	Environments     []string            `json:"environments"`
 	ResourcePrefixes []string            `json:"resource_prefixes,omitempty"`
+	ResourceIDs      []string            `json:"resource_ids,omitempty"`
 	Rules            []AuthorizationRule `json:"rules"`
 }
 
 type AuthorizationRule struct {
-	ID               string   `json:"id"`
-	Effect           string   `json:"effect"`
-	Providers        []string `json:"providers,omitempty"`
-	Operations       []string `json:"operations,omitempty"`
-	ResourcePrefixes []string `json:"resource_prefixes,omitempty"`
+	ID               string           `json:"id"`
+	Effect           string           `json:"effect"`
+	Providers        []string         `json:"providers,omitempty"`
+	Operations       []string         `json:"operations,omitempty"`
+	ResourcePrefixes []string         `json:"resource_prefixes,omitempty"`
+	ResourceIDs      []string         `json:"resource_ids,omitempty"`
+	ParameterLimits  *ParameterLimits `json:"parameter_limits,omitempty"`
 }
 
 func (a Authorization) Validate() error {
+	if err := ValidateResourceSelection(a.ResourcePrefixes, a.ResourceIDs); err != nil {
+		return err
+	}
 	for label, value := range map[string]string{
 		"profile digest": a.ProfileDigest, "policy release": a.PolicyRelease,
 		"provider": a.Provider, "account ref": a.AccountRef,
@@ -138,6 +144,17 @@ func (a Authorization) Validate() error {
 	}
 	seen := make(map[string]struct{}, len(a.Rules))
 	for _, rule := range a.Rules {
+		if err := ValidateResourceSelection(rule.ResourcePrefixes, rule.ResourceIDs); err != nil {
+			return err
+		}
+		if rule.ParameterLimits != nil {
+			if rule.Effect != "allow" && rule.Effect != "require_typed_capability" {
+				return errors.New("parameter ceilings require an allow or typed rule")
+			}
+			if err := rule.ParameterLimits.Validate(); err != nil {
+				return err
+			}
+		}
 		if strings.TrimSpace(rule.ID) == "" {
 			return errors.New("authorization rule id is required")
 		}
@@ -351,6 +368,7 @@ type ConfigureRequest struct {
 	AccountRef         string   `json:"account_ref"`
 	Environments       []string `json:"environments"`
 	ResourcePrefixes   []string `json:"resource_prefixes,omitempty"`
+	ResourceIDs        []string `json:"resource_ids,omitempty"`
 	ActivePath         string   `json:"active_path"`
 	RuntimeExecutable  string   `json:"runtime_executable"`
 	RendererExecutable string   `json:"renderer_executable"`

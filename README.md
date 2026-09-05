@@ -39,6 +39,37 @@ system.
 See [provider-fixture-orbital](https://github.com/misconfig-cloud/provider-fixture-orbital)
 for a deliberately unfamiliar acceptance provider.
 
+## Exact resources and task limits
+
+`Authorization.ResourceIDs` and `AuthorizationRule.ResourceIDs` use byte-exact
+identity matching. They cannot be combined with prefixes at the same scope.
+An explicit empty list is invalid. Omitting exact IDs preserves legacy prefix
+semantics; do not translate an exact ID into a prefix.
+
+An allow or typed-action rule may include `ParameterLimits`. This is a closed
+top-level object: every supplied parameter must be declared, and each declared
+field is required unless marked optional. Scalars support types, explicit
+allowed values and inclusive numeric bounds. Objects and arrays require exact
+allowed JSON values. Numeric comparisons preserve integer precision; duplicate
+JSON keys, excessive nesting and oversized values are rejected.
+
+All matching parameter ceilings intersect. A broader allow elsewhere cannot
+bypass a narrower ceiling. Limits are restrictions, never permission grants.
+Provider capability schemas still apply independently.
+
+Credential issuers must explicitly publish the features they enforce in the
+signed `Credential.AuthorizationFeatures`: `exact_resources_v1` and/or
+`parameter_limits_v1`. Upgrading this library does not opt an adapter in. Call
+`CheckAuthorizationSupport` before issuance, and enforce the full authorization
+in the actual provider credentials or execution boundary. Do not declare a
+feature merely because your parser recognizes it. The control plane also
+checks this declaration before issuing credentials.
+
+Exact IDs and parameter limits participate in authorization digests. New
+renderers receive exact scope through `ConfigureRequest.ResourceIDs`. Legacy
+manifest and authorization bytes remain unchanged when new fields are absent;
+older adapters must reject unfamiliar constrained requests, not drop fields.
+
 ## Compatibility
 
 The module follows semantic versioning. Protocol major `2` binds every issued

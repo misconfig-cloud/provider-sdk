@@ -56,6 +56,27 @@ func TestCredentialAndRendererAreAtomic(t *testing.T) {
 	}
 }
 
+func TestCredentialFeatureDeclarationIsSigned(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := fixtureManifest()
+	manifest.Credential.AuthorizationFeatures = []string{AuthorizationExactResourcesV1, AuthorizationParameterLimitsV1}
+	signed, err := Sign(manifest, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trusted := TrustedPublisher{ID: manifest.Publisher.ID, KeyID: manifest.Publisher.KeyID, PublicKey: public}
+	if err := Verify(signed, trusted); err != nil {
+		t.Fatal(err)
+	}
+	signed.Manifest.Credential.AuthorizationFeatures = nil
+	if Verify(signed, trusted) == nil {
+		t.Fatal("stripped credential features preserved signature")
+	}
+}
+
 func TestSignedManifestRejectsTamperAndUnknownPublisher(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
