@@ -28,6 +28,32 @@ func JSONDigest(value json.RawMessage) (string, error) {
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
+// ActionDigest canonically binds one typed action to the immutable capability,
+// provider operation, exact resource, environment, and decoded parameters.
+// Both the control plane and the provider adapter must recompute it. A caller
+// cannot substitute parameters after approval while retaining the authority.
+func ActionDigest(capabilityDigest, operation, resource, environment string, parameters json.RawMessage) (string, error) {
+	if !authorizationDigestPattern.MatchString(capabilityDigest) || strings.TrimSpace(operation) == "" || strings.TrimSpace(resource) == "" || strings.TrimSpace(environment) == "" {
+		return "", errors.New("typed action identity is incomplete")
+	}
+	var decoded any
+	if len(parameters) == 0 || json.Unmarshal(parameters, &decoded) != nil {
+		return "", errors.New("typed action parameters are invalid")
+	}
+	canonical, err := json.Marshal(struct {
+		CapabilityDigest string `json:"capability_digest"`
+		Operation        string `json:"operation"`
+		Resource         string `json:"resource"`
+		Environment      string `json:"environment"`
+		Parameters       any    `json:"parameters"`
+	}{capabilityDigest, operation, resource, environment, decoded})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
 type PrepareRequest struct {
 	RequestID    string          `json:"request_id"`
 	TenantID     string          `json:"tenant_id"`
@@ -217,7 +243,8 @@ func (r ExecuteActionRequest) Validate(capability ActionCapability) error {
 		}
 	}
 	capabilityDigest, err := ActionCapabilityDigest(capability)
-	if err != nil || r.CapabilityRef != capability.Ref || r.Operation != capability.Operation || r.CapabilityDigest != capabilityDigest || !authorizationDigestPattern.MatchString(r.ActionDigest) {
+	actionDigest, digestErr := ActionDigest(r.CapabilityDigest, r.Operation, r.Resource, r.Environment, r.Parameters)
+	if err != nil || digestErr != nil || r.CapabilityRef != capability.Ref || r.Operation != capability.Operation || r.CapabilityDigest != capabilityDigest || r.ActionDigest != actionDigest {
 		return errors.New("typed action capability binding is invalid")
 	}
 	if len(r.Configuration) == 0 || !json.Valid(r.Configuration) || len(r.Parameters) == 0 || !json.Valid(r.Parameters) || r.Now.IsZero() {
@@ -277,6 +304,23 @@ type ActionVerification struct {
 	VerifierRelease string          `json:"verifier_release"`
 	Evidence        json.RawMessage `json:"evidence"`
 	EvidenceDigest  string          `json:"evidence_digest"`
+}
+
+func (r VerifyActionRequest) Validate(capability ActionCapability) error {
+	for _, value := range []string{r.RequestID, r.ConnectionID, r.Provider, r.Release, r.AccountRef, r.Subject.TenantID, r.Subject.ActorID, r.Subject.DeviceID, r.Subject.SessionID, r.Subject.ProfileID, r.CapabilityRef, r.ActionID, r.Operation, r.Resource, r.Environment} {
+		if strings.TrimSpace(value) == "" {
+			return errors.New("typed action verification identity is incomplete")
+		}
+	}
+	capabilityDigest, err := ActionCapabilityDigest(capability)
+	actionDigest, digestErr := ActionDigest(r.CapabilityDigest, r.Operation, r.Resource, r.Environment, r.Parameters)
+	if err != nil || digestErr != nil || r.CapabilityRef != capability.Ref || r.Operation != capability.Operation || r.CapabilityDigest != capabilityDigest || r.ActionDigest != actionDigest {
+		return errors.New("typed action verification binding is invalid")
+	}
+	if len(r.Configuration) == 0 || !json.Valid(r.Configuration) || len(r.Parameters) == 0 || !json.Valid(r.Parameters) || r.Now.IsZero() || r.Subject.AccountRef != r.AccountRef || r.Subject.Environment != r.Environment || r.Execution.Validate() != nil {
+		return errors.New("typed action verification payload is invalid")
+	}
+	return nil
 }
 
 func (v ActionVerification) Validate() error {
