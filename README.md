@@ -39,6 +39,25 @@ system.
 See [provider-fixture-orbital](https://github.com/misconfig-cloud/provider-fixture-orbital)
 for a deliberately unfamiliar acceptance provider.
 
+## Resource discovery (unreleased protocol foundation)
+
+An action can optionally publish `ResourceDiscovery` in its signed capability.
+`DiscoveryRequest` supports bounded search or exact-ID revalidation, never both.
+`DiscoveryPage.Validate` checks the complete request digest, observation age,
+page bounds, duplicate identities and complete present/missing classification
+for every selected ID. Missing resources are not permission grants.
+
+IDs are opaque provider identities. Labels and kinds are untrusted display text;
+they must not be interpreted as HTML, instructions or authority. Connection
+configuration stays on the authenticated adapter transport, not UI receipts.
+The request digest preserves numeric precision and rejects duplicate JSON keys.
+
+Existing action and manifest bytes are unchanged when discovery is absent.
+Declaring discovery changes signed identity and requires a new admitted release.
+HTTP/outbound transport, persisted selection receipts and console authoring are
+not yet implemented by this protocol foundation. Do not advertise an adapter's
+guided resource picker just because it compiles against these types.
+
 ## Exact resources and task limits
 
 `Authorization.ResourceIDs` and `AuthorizationRule.ResourceIDs` use byte-exact

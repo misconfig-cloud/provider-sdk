@@ -92,16 +92,22 @@ func (b Broker) TransportMode() string {
 // separate so an adapter cannot claim that a successful API response proves
 // the requested provider state.
 type ActionCapability struct {
-	Ref                string `json:"ref"`
-	Operation          string `json:"operation"`
-	MaximumTTLSeconds  int64  `json:"maximum_ttl_seconds"`
-	Reversible         bool   `json:"reversible"`
-	ParametersSchema   any    `json:"parameters_schema"`
-	ExecutionSchema    any    `json:"execution_schema"`
-	VerificationSchema any    `json:"verification_schema"`
+	Ref                string             `json:"ref"`
+	Operation          string             `json:"operation"`
+	MaximumTTLSeconds  int64              `json:"maximum_ttl_seconds"`
+	Reversible         bool               `json:"reversible"`
+	ParametersSchema   any                `json:"parameters_schema"`
+	ExecutionSchema    any                `json:"execution_schema"`
+	VerificationSchema any                `json:"verification_schema"`
+	Discovery          *ResourceDiscovery `json:"resource_discovery,omitempty"`
 }
 
 func (a ActionCapability) Validate() error {
+	if a.Discovery != nil {
+		if err := a.Discovery.Validate(); err != nil {
+			return err
+		}
+	}
 	if !identityPattern.MatchString(a.Ref) || !operationPattern.MatchString(a.Operation) {
 		return errors.New("action capability identity is invalid")
 	}
