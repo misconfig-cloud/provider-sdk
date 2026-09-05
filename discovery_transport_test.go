@@ -233,3 +233,28 @@ func TestDiscoveryDispatchDigestPreservesPrecisionAndLegacyDigests(t *testing.T)
 		t.Fatal("duplicate keys accepted")
 	}
 }
+
+func TestDiscoveryDigestSurvivesJSONBNumberNormalization(t *testing.T) {
+	s, r, _ := transportDiscoveryFixture(t)
+	capability := s.Manifest.Actions[0]
+	var previousRequest, previousDispatch string
+	for _, configuration := range []string{
+		`{"a":1e2,"b":1.2500,"c":-0.000,"d":9007199254740993,"nested":[0.0010,-2.5e-2]}`,
+		`{"a":100,"b":1.25,"c":0,"d":9007199254740993.0,"nested":[1e-3,-0.025]}`,
+	} {
+		r.Configuration = json.RawMessage(configuration)
+		digest, err := DiscoveryRequestDigest(r, capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := json.Marshal(r)
+		dispatch, err := DispatchRequestDigest(OutboundPhaseDiscoverResources, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if previousRequest != "" && (digest != previousRequest || dispatch != previousDispatch) {
+			t.Fatal("numeric normalization changed discovery identity")
+		}
+		previousRequest, previousDispatch = digest, dispatch
+	}
+}

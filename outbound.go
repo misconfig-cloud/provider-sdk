@@ -91,7 +91,7 @@ func DispatchRequestDigest(phase string, request json.RawMessage) (string, error
 	if err != nil {
 		return "", err
 	}
-	encoded, err := json.Marshal(decoded)
+	encoded, err := json.Marshal(canonicalDiscoveryNumbers(decoded))
 	if err != nil {
 		return "", err
 	}

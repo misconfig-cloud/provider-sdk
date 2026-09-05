@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -95,13 +96,56 @@ func DiscoveryRequestDigest(r DiscoveryRequest, capability ActionCapability) (st
 		return "", err
 	}
 	configuration, _ := decodeParameterJSON(r.Configuration)
-	r.Configuration, _ = json.Marshal(configuration)
+	r.Configuration, _ = json.Marshal(canonicalDiscoveryNumbers(configuration))
 	encoded, err := json.Marshal(r)
 	if err != nil {
 		return "", err
 	}
 	digest := sha256.Sum256(encoded)
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+// PostgreSQL JSONB normalizes decimal spelling. Normalize values exactly (not
+// via float64) so storage round trips cannot invalidate a request's identity.
+func canonicalDiscoveryNumbers(value any) any {
+	switch v := value.(type) {
+	case json.Number:
+		s := string(v)
+		sign := ""
+		if strings.HasPrefix(s, "-") {
+			sign = "-"
+			s = s[1:]
+		}
+		exponent := 0
+		if i := strings.IndexAny(s, "eE"); i >= 0 {
+			exponent, _ = strconv.Atoi(s[i+1:])
+			s = s[:i]
+		}
+		if i := strings.IndexByte(s, '.'); i >= 0 {
+			exponent -= len(s) - i - 1
+			s = s[:i] + s[i+1:]
+		}
+		s = strings.TrimLeft(s, "0")
+		if s == "" {
+			return json.Number("0")
+		}
+		trimmed := strings.TrimRight(s, "0")
+		exponent += len(s) - len(trimmed)
+		s = trimmed
+		if exponent == 0 {
+			return json.Number(sign + s)
+		}
+		return json.Number(sign + s + "e" + strconv.Itoa(exponent))
+	case map[string]any:
+		for key, item := range v {
+			v[key] = canonicalDiscoveryNumbers(item)
+		}
+	case []any:
+		for i, item := range v {
+			v[i] = canonicalDiscoveryNumbers(item)
+		}
+	}
+	return value
 }
 
 type DiscoveredResource struct {
