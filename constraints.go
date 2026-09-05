@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	AuthorizationExactResourcesV1  = "exact_resources_v1"
-	AuthorizationParameterLimitsV1 = "parameter_limits_v1"
+	AuthorizationExactResourcesV1     = "exact_resources_v1"
+	AuthorizationParameterLimitsV1    = "parameter_limits_v1"
+	AuthorizationCapabilityBindingsV1 = "capability_bindings_v1"
 )
 
 // Authorization features are publisher assertions in a signed credential
@@ -21,7 +22,7 @@ const (
 func ValidateAuthorizationFeatures(features []string) error {
 	seen := map[string]bool{}
 	for _, feature := range features {
-		if (feature != AuthorizationExactResourcesV1 && feature != AuthorizationParameterLimitsV1) || seen[feature] {
+		if (feature != AuthorizationExactResourcesV1 && feature != AuthorizationParameterLimitsV1 && feature != AuthorizationCapabilityBindingsV1) || seen[feature] {
 			return errors.New("unsupported or duplicate credential authorization feature")
 		}
 		seen[feature] = true
@@ -38,16 +39,20 @@ func CheckAuthorizationSupport(a Authorization, features []string) error {
 	if err := ValidateAuthorizationFeatures(features); err != nil {
 		return err
 	}
-	exact, parameters := a.ResourceIDs != nil, false
+	exact, parameters, capabilities := a.ResourceIDs != nil, false, false
 	for _, rule := range a.Rules {
 		exact = exact || rule.ResourceIDs != nil
 		parameters = parameters || rule.ParameterLimits != nil
+		capabilities = capabilities || rule.Capabilities != nil
 	}
 	if exact && !slices.Contains(features, AuthorizationExactResourcesV1) {
 		return errors.New("credential release does not enforce exact resources")
 	}
 	if parameters && !slices.Contains(features, AuthorizationParameterLimitsV1) {
 		return errors.New("credential release does not enforce parameter limits")
+	}
+	if capabilities && !slices.Contains(features, AuthorizationCapabilityBindingsV1) {
+		return errors.New("credential release does not enforce capability bindings")
 	}
 	return nil
 }
@@ -107,9 +112,25 @@ type ParameterLimit struct {
 // ParametersWithinRules intersects all applicable parameter ceilings. A broad
 // allow elsewhere must never bypass the limits on this operation/resource.
 func ParametersWithinRules(rules []AuthorizationRule, provider, operation, resource string, parameters json.RawMessage) bool {
+	// This legacy entry point has no trusted capability identity. Do not silently
+	// omit a new selector, even when another operation/resource would match.
 	for _, rule := range rules {
-		if rule.ParameterLimits == nil || (len(rule.Providers) > 0 && !slices.Contains(rule.Providers, provider)) ||
-			(len(rule.Operations) > 0 && !slices.Contains(rule.Operations, operation)) || !MatchesResources(resource, rule.ResourcePrefixes, rule.ResourceIDs) {
+		if rule.Capabilities != nil {
+			return false
+		}
+	}
+	return ParametersWithinCapabilityRules(rules, provider, operation, resource, CapabilitySelector{}, parameters)
+}
+
+// ParametersWithinCapabilityRules intersects parameter ceilings only within
+// the applicable exact capability and the remaining rule scope. Generic rules
+// still apply. This checks ceilings, not allow/deny effects or approval.
+func ParametersWithinCapabilityRules(rules []AuthorizationRule, provider, operation, resource string, capability CapabilitySelector, parameters json.RawMessage) bool {
+	for _, rule := range rules {
+		if ValidateCapabilitySelection(rule.Capabilities) != nil || (rule.Capabilities != nil && capability.Validate() != nil) {
+			return false
+		}
+		if rule.ParameterLimits == nil || !MatchesAuthorizationRule(rule, provider, operation, resource, capability) {
 			continue
 		}
 		if !rule.ParameterLimits.Matches(parameters) {

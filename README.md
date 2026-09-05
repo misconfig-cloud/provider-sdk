@@ -37,7 +37,8 @@ the adapter controls AWS, GCP, Kubernetes, Hetzner, SaaS APIs, or an internal
 system.
 
 See [provider-fixture-orbital](https://github.com/misconfig-cloud/provider-fixture-orbital)
-for a deliberately unfamiliar acceptance provider.
+for a fictional protocol-test provider. It is not a customer integration or
+evidence of a real infrastructure workflow.
 
 ## Resource discovery (SDK v0.7.0)
 
@@ -107,6 +108,34 @@ Exact IDs and parameter limits participate in authorization digests. New
 renderers receive exact scope through `ConfigureRequest.ResourceIDs`. Legacy
 manifest and authorization bytes remain unchanged when new fields are absent;
 older adapters must reject unfamiliar constrained requests, not drop fields.
+
+## Exact capability selection (SDK v0.8.0)
+
+`AuthorizationRule.Capabilities` contains exact `{ref, digest}` pairs. Both
+values must match a selected immutable capability. It is an additional rule
+selector, intersecting provider, operation and resource; matching an operation
+alone cannot select another implementation. A nil field retains legacy
+semantics. Empty, duplicated, ambiguous and malformed selections are invalid.
+The connection's exact provider release remains independently pinned.
+
+Use `MatchesAuthorizationRule` for selector matching and
+`ParametersWithinCapabilityRules` for applicable parameter ceilings. Neither
+helper grants permission: callers must validate the full authorization, preserve
+stop/deny precedence and separately enforce exact action approval. Generic
+ceilings still intersect capability-specific ceilings. The legacy
+`ParametersWithinRules` helper refuses capability-bearing rules because it has
+no trusted capability identity; it never silently drops the new selector.
+
+Credential issuers must explicitly declare `capability_bindings_v1` in the
+signed authorization features and actually enforce it. A native credential
+format that cannot bind exact capabilities must refuse issuance. Merely
+updating an SDK or parsing the selector is not enforcement. Selectors change
+the authorization digest; omitting them preserves legacy canonical bytes.
+
+This SDK release alone does not enable capability selection in the console.
+Core storage/rollback protection, signing, local runtime, action enforcement
+and old-client rejection must ship together before removing the current
+same-operation ambiguity refusal from guided task authoring.
 
 ## Compatibility
 

@@ -113,13 +113,14 @@ type Authorization struct {
 }
 
 type AuthorizationRule struct {
-	ID               string           `json:"id"`
-	Effect           string           `json:"effect"`
-	Providers        []string         `json:"providers,omitempty"`
-	Operations       []string         `json:"operations,omitempty"`
-	ResourcePrefixes []string         `json:"resource_prefixes,omitempty"`
-	ResourceIDs      []string         `json:"resource_ids,omitempty"`
-	ParameterLimits  *ParameterLimits `json:"parameter_limits,omitempty"`
+	ID               string               `json:"id"`
+	Effect           string               `json:"effect"`
+	Providers        []string             `json:"providers,omitempty"`
+	Operations       []string             `json:"operations,omitempty"`
+	Capabilities     []CapabilitySelector `json:"capabilities,omitempty"`
+	ResourcePrefixes []string             `json:"resource_prefixes,omitempty"`
+	ResourceIDs      []string             `json:"resource_ids,omitempty"`
+	ParameterLimits  *ParameterLimits     `json:"parameter_limits,omitempty"`
 }
 
 func (a Authorization) Validate() error {
@@ -144,6 +145,9 @@ func (a Authorization) Validate() error {
 	}
 	seen := make(map[string]struct{}, len(a.Rules))
 	for _, rule := range a.Rules {
+		if err := ValidateCapabilitySelection(rule.Capabilities); err != nil {
+			return err
+		}
 		if err := ValidateResourceSelection(rule.ResourcePrefixes, rule.ResourceIDs); err != nil {
 			return err
 		}
