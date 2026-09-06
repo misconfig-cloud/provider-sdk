@@ -12,6 +12,16 @@ verify, and the tenant admits that exact digest.
 
 ## Contracts
 
+SDK v0.10.0 adds an optional signed credential `lifetime_protocol` declaration,
+`misconfig.credential-lifetime/v1`. Declared issuers require the original
+`IssueRequest.Lifetime.TaskExpiresAt`; they must enforce it in the actual native
+credential, not just its returned timestamp. Use `ValidateIssueLifetime` before
+issuance and `ValidateIssuedLifetime` after it, alongside complete authorization
+validation. Refuse a provider minimum TTL that cannot fit. Missing declarations
+preserve legacy wire bytes; they do not imply deadline support. A control plane
+can retain legacy issuance only where the entire advertised maximum lease fits
+the remaining task window, and must still check the actual returned expiry.
+
 - `Manifest` describes a provider, short-lived credential protocol, local
   renderer, per-platform artifact digests, schemas, and exact release identity.
 - `Sign` and `Verify` bind that manifest to an Ed25519 publisher key.

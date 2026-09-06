@@ -46,6 +46,7 @@ type Credential struct {
 	RevocationSemantics   string   `json:"revocation_semantics"`
 	PayloadSchema         any      `json:"payload_schema"`
 	AuthorizationFeatures []string `json:"authorization_features,omitempty"`
+	LifetimeProtocol      string   `json:"lifetime_protocol,omitempty"`
 }
 
 type Renderer struct {
@@ -177,6 +178,9 @@ func (m Manifest) Validate() error {
 		return errors.New("credential and renderer contracts must be published together")
 	}
 	if m.Credential != nil {
+		if err := ValidateCredentialLifetimeProtocol(m.Credential.LifetimeProtocol); err != nil {
+			return err
+		}
 		if err := ValidateAuthorizationFeatures(m.Credential.AuthorizationFeatures); err != nil {
 			return err
 		}

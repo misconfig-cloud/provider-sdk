@@ -193,16 +193,17 @@ func AuthorizationDigest(authorization Authorization) (string, error) {
 }
 
 type IssueRequest struct {
-	RequestID           string          `json:"request_id"`
-	ConnectionID        string          `json:"connection_id"`
-	Provider            string          `json:"provider"`
-	Release             string          `json:"release"`
-	AccountRef          string          `json:"account_ref"`
-	Configuration       json.RawMessage `json:"configuration"`
-	Subject             Subject         `json:"subject"`
-	Authorization       Authorization   `json:"authorization"`
-	AuthorizationDigest string          `json:"authorization_digest"`
-	Now                 time.Time       `json:"now"`
+	RequestID           string              `json:"request_id"`
+	ConnectionID        string              `json:"connection_id"`
+	Provider            string              `json:"provider"`
+	Release             string              `json:"release"`
+	AccountRef          string              `json:"account_ref"`
+	Configuration       json.RawMessage     `json:"configuration"`
+	Subject             Subject             `json:"subject"`
+	Authorization       Authorization       `json:"authorization"`
+	AuthorizationDigest string              `json:"authorization_digest"`
+	Now                 time.Time           `json:"now"`
+	Lifetime            *CredentialLifetime `json:"lifetime,omitempty"`
 }
 
 type Material struct {
