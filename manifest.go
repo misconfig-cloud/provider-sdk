@@ -102,9 +102,18 @@ type ActionCapability struct {
 	ExecutionSchema    any                `json:"execution_schema"`
 	VerificationSchema any                `json:"verification_schema"`
 	Discovery          *ResourceDiscovery `json:"resource_discovery,omitempty"`
+	// Semantics are a signed maximum-effect declaration, not permission. Old
+	// releases omit this field and retain their exact original digest. Consumers
+	// must treat absent semantics as unknown, never infer safety from Operation.
+	Semantics *ActionSemantics `json:"semantics,omitempty"`
 }
 
 func (a ActionCapability) Validate() error {
+	if a.Semantics != nil {
+		if err := a.Semantics.Validate(); err != nil {
+			return err
+		}
+	}
 	if a.Discovery != nil {
 		if err := a.Discovery.Validate(); err != nil {
 			return err

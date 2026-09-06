@@ -12,6 +12,21 @@ verify, and the tenant admits that exact digest.
 
 ## Contracts
 
+Unreleased ADR 0099 foundation: `ActionCapability.Semantics` optionally declares
+versioned maximum effects. `AssessCapabilityEffects` maps them to additional
+requirements under Read only, Review changes or Delegated changes. Missing
+semantics remain unknown, even for a read-sounding or reversible operation.
+Old declarations omit the field and preserve their bytes/digests. New semantics
+are bound into the capability and manifest signatures.
+
+This pure evaluator is **not authorization** and is not yet wired to a selectable
+session policy. Callers must first verify signature and tenant admission; scope,
+deny/stop, expiry, credentials, exact-action authority and execution/proof checks
+still apply. A read requires those checks; a delegated write requires actual
+exact-action delegation. Unknown effects need resolution through a supported
+capability, not merely an approval click. No shell parsing, model classification,
+automatic approval or credential issuance is introduced by this foundation.
+
 SDK v0.10.0 adds an optional signed credential `lifetime_protocol` declaration,
 `misconfig.credential-lifetime/v1`. Declared issuers require the original
 `IssueRequest.Lifetime.TaskExpiresAt`; they must enforce it in the actual native
